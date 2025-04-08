@@ -11,6 +11,15 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+WASABI_ACCESS_KEY = os.getenv("WASABI_ACCESS_KEY")
+WASABI_SECRET_KEY = os.getenv("WASABI_SECRET_KEY")
+WASABI_BUCKET_NAME = os.getenv("WASABI_BUCKET_NAME")
+WASABI_ENDPOINT = os.getenv("WASABI_ENDPOINT")
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,6 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'scheduler',
 ]
 
 MIDDLEWARE = [
@@ -75,8 +85,12 @@ WSGI_APPLICATION = 'job_scheduler.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'job_scheduler_schema',
+        'USER': 'postgres',
+        'PASSWORD': 'neharika',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
@@ -119,5 +133,8 @@ STATIC_URL = 'static/'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
+
+# Wasabi settings (replacing Firebase Storage)
+
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

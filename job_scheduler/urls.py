@@ -15,8 +15,12 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+
 from django.urls import path
+from scheduler import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('jobs/', views.submit_job, name='submit_job'),
+    path('jobs/<uuid:job_id>/results/', views.get_job_results, name='get_job_results'),
 ]
