@@ -1,5 +1,6 @@
 kafka-python
 python-dotenv
 requests
-smtplib
 psycopg2-binary
+boto3
+Django
