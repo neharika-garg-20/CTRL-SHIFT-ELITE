@@ -30,6 +30,7 @@ class Job(models.Model):
     retry_count = models.IntegerField(default=0)
     worker_id = models.CharField(max_length=50, null=True, blank=True)
     result_location = models.TextField(null=True, blank=True)  # Path to result in Wasabi
+    is_periodic = models.BooleanField(default=False)
 
     def _str_(self):
         return f"Job {self.job_id}"
