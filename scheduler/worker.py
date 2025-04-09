@@ -1,8 +1,15 @@
+from kafka import KafkaConsumer
+import json
 import time
+import uuid
+import subprocess
+import requests
 import boto3
+from django.utils import timezone
 from django.conf import settings
-from .models import TaskAssignment, Job, JobHistory
+from scheduler.models import Worker, TaskAssignment, Job, JobHistory
 
+# Wasabi configuration using Django settings
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=settings.WASABI_ACCESS_KEY,
@@ -20,36 +27,161 @@ def get_from_wasabi(data_location):
     response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
     return response["Body"].read().decode("utf-8")
 
-def do_task(data):
-    return f"Task done: {data}"
+def process_file_execution(job):
+    try:
+        file_content = get_from_wasabi(job.data_location)
+        file_type = job.data_location.split('.')[-1].lower()
+        if file_type == 'py':
+            process = subprocess.run(['python', '-c', file_content], capture_output=True, text=True)
+        elif file_type == 'sh':
+            process = subprocess.run(['bash', '-c', file_content], capture_output=True, text=True)
+        else:
+            return False, f"Unsupported file type: {file_type}"
+        result = {'output': process.stdout} if process.returncode == 0 else {'error': process.stderr}
+        return process.returncode == 0, result
+    except Exception as e:
+        return False, str(e)
+
+def process_notification(job):
+    try:
+        config = json.loads(get_from_wasabi(job.data_location))
+        message = config.get('message')
+        target = config.get('target')
+        method = config.get('method', 'email')
+        if method == 'email':
+            print(f"Sending email to {target}: {message}")  # Replace with real email logic
+            return True, "Email sent"
+        elif method == 'slack':
+            response = requests.post(target, json={'text': message})
+            response.raise_for_status()
+            return True, "Slack message sent"
+        else:
+            return False, f"Unsupported method: {method}"
+    except Exception as e:
+        return False, str(e)
+
+def process_system_automation(job):
+    try:
+        command = get_from_wasabi(job.data_location)
+        process = subprocess.run(command, shell=True, capture_output=True, text=True)
+        result = {'output': process.stdout} if process.returncode == 0 else {'error': process.stderr}
+        return process.returncode == 0, result
+    except Exception as e:
+        return False, str(e)
+
+def process_job(job_data):
+    job = Job.objects.get(job_id=job_data['job_id'])
+    job_type = job_data['job_type'].upper()
+
+    if job_type == 'FILE_EXECUTION':
+        return process_file_execution(job)
+    elif job_type == 'NOTIFICATION':
+        return process_notification(job)
+    elif job_type == 'SYSTEM_AUTOMATION':
+        return process_system_automation(job)
+    else:
+        return False, f"Unknown job type: {job_type}"
+
+def send_heartbeat(worker):
+    worker.last_heartbeat = timezone.now()
+    worker.status = 'ACTIVE' if worker.current_load > 0 else 'IDLE'
+    worker.save()
 
 def worker_loop(worker_id):
-    while True:
-        task = TaskAssignment.objects.filter(worker__worker_id=worker_id, status='ASSIGNED').select_related('job').first()
-        if task:
-            task.status = 'RUNNING'
-            task.save()
-            
-            data = get_from_wasabi(task.job.data_location)
-            result = do_task(data)
-            result_location = save_to_wasabi(result, task.job.job_id)
-            
-            task.status = 'COMPLETED'
-            task.result_location = result_location
-            task.save()
-            
-            task.job.status = 'COMPLETED'
-            task.job.result_location = result_location
-            task.job.save()
-            
-            JobHistory.objects.create(job=task.job, worker_id=worker_id, status='COMPLETED')
-            print(f"Worker {worker_id} finished job {task.job.job_id}")
-        
-        time.sleep(1)
+    worker, created = Worker.objects.get_or_create(
+        worker_id=worker_id,
+        defaults={'hostname': 'localhost', 'status': 'IDLE', 'capacity': 5}
+    )
 
-if __name__ == "_main_":
+    import threading
+    def heartbeat_loop():
+        while True:
+            send_heartbeat(worker)
+            time.sleep(5)
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
+
+    consumer = KafkaConsumer(
+        'job_topic',
+        bootstrap_servers='localhost:9092',
+        auto_offset_reset='earliest',
+        group_id='worker_group',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8')),
+        enable_auto_commit=False,
+        max_poll_records=1
+    )
+
+    print(f"Worker {worker_id} starting...")
+    for message in consumer:
+        if worker.current_load >= worker.capacity:
+            time.sleep(1)
+            continue
+
+        job_data = message.value
+        job_id = job_data['job_id']
+        try:
+            job = Job.objects.get(job_id=job_id)
+            if job.status != 'PROCESSING':
+                consumer.commit()
+                continue
+
+            assignment = TaskAssignment(
+                job=job,
+                worker=worker,
+                status='ASSIGNED',
+                priority=job.priority
+            )
+            assignment.save()
+            worker.current_load += 1
+            worker.save()
+
+            assignment.status = 'RUNNING'
+            assignment.start_time = timezone.now()
+            assignment.save()
+
+            print(f"Worker {worker_id} processing job {job_id} ({job.job_type})")
+            success, result = process_job(job_data)
+
+            assignment.status = 'COMPLETED' if success else 'FAILED'
+            assignment.end_time = timezone.now()
+            if success and isinstance(result, dict):
+                result_str = json.dumps(result)
+            else:
+                result_str = result
+            assignment.result_location = save_to_wasabi(result_str, job_id)
+            assignment.save()
+
+            job.status = 'COMPLETED' if success else 'ERROR'
+            job.last_execution_time = timezone.now()
+            job.worker_id = worker.worker_id
+            job.result_location = assignment.result_location
+            job.save()
+
+            JobHistory.objects.create(
+                job=job,
+                worker_id=worker_id,
+                status='COMPLETED' if success else 'ERROR',
+                duration_ms=int((assignment.end_time - assignment.start_time).total_seconds() * 1000),
+                error_message=result if not success else None,
+                retry_num=job.retry_count
+            )
+
+            worker.current_load -= 1
+            worker.save()
+
+            print(f"Worker {worker_id} finished job {job_id} ({assignment.status})")
+            consumer.commit()
+
+        except Job.DoesNotExist:
+            print(f"Job {job_id} not found, skipping")
+            consumer.commit()
+        except Exception as e:
+            print(f"Worker {worker_id} encountered error: {str(e)}")
+            consumer.commit()
+
+if __name__ == "__main__":
     import django
     import os
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'scheduler_project.settings')
     django.setup()
-    worker_loop("worker1")
+    worker_id = str(uuid.uuid4())
+    worker_loop(worker_id)
