@@ -4,7 +4,7 @@ from scheduler.models import User, Job
 if __name__ == "__main__":
     import django
     import os
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'scheduler_project.settings')
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'job_scheduler.settings')
     django.setup()
 
     user, _ = User.objects.get_or_create(
