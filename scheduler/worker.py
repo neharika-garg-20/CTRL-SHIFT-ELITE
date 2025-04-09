@@ -1,3 +1,12 @@
+import sys
+import os
+from django.db.models.functions import Now
+from django.db.models import DurationField
+from datetime import timedelta
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'job_scheduler.settings')
+import django
+django.setup()
 from kafka import KafkaConsumer
 import json
 import time
@@ -5,9 +14,11 @@ import uuid
 import subprocess
 import requests
 import boto3
+
 from django.utils import timezone
 from django.conf import settings
 from scheduler.models import Worker, TaskAssignment, Job, JobHistory
+
 
 # Wasabi configuration using Django settings
 s3_client = boto3.client(
