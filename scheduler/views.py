@@ -1,10 +1,14 @@
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from scheduler.models import Job, User
+from scheduler.serializers import JobSerializer
 import boto3
-from django.conf import settings
 import uuid
-from .models import User, Job
+from django.conf import settings
 
+# Initialize Wasabi S3 client
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=settings.WASABI_ACCESS_KEY,
@@ -22,58 +26,56 @@ def get_from_wasabi(data_location):
     response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
     return response["Body"].read().decode("utf-8")
 
-@csrf_exempt
-def submit_job(request):
-    if request.method == "POST":
-        api_key = request.headers.get("X-API-Key")
-        if not api_key:
-            return JsonResponse({"error": "No API key provided"}, status=401)
-        
-        try:
-            user = User.objects.get(api_key=api_key)
-        except User.DoesNotExist:
-            return JsonResponse({"error": "Invalid API key"}, status=401)
-        
-        data = request.POST
-        job_id = uuid.uuid4()
-        schedule_time = data.get("schedule_time")
-        job_type = data.get("job_type", "script")
-        priority = int(data.get("priority", 0))
-        task_data = data.get("data", "default_task")
-        
-        data_location = save_to_wasabi(task_data, job_id)
-        
-        job = Job(
-            job_id=job_id,
-            user=user,
-            job_type=job_type,
-            schedule_time=schedule_time,
-            priority=priority,
-            data_location=data_location
-        )
-        job.save()
-        
-        return JsonResponse({"job_id": str(job_id)}, status=202)
-    return JsonResponse({"error": "Method not allowed"}, status=405)
+class SubmitJobView(APIView):
+    permission_classes = [AllowAny]  # You can customize permissions later
 
-def get_job_results(request, job_id):
-    if request.method == "GET":
+    def post(self, request):
         api_key = request.headers.get("X-API-Key")
         if not api_key:
-            return JsonResponse({"error": "No API key provided"}, status=401)
-        
+            return Response({"error": "No API key provided"}, status=status.HTTP_401_UNAUTHORIZED)
+
         try:
             user = User.objects.get(api_key=api_key)
         except User.DoesNotExist:
-            return JsonResponse({"error": "Invalid API key"}, status=401)
-        
+            return Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        data = request.data.copy()
+        job_id = uuid.uuid4()
+        task_data = data.get("data", "default_task")
+
+        # Save task data to Wasabi
+        data_location = save_to_wasabi(task_data, job_id)
+        data["job_id"] = job_id
+        data["user"] = user.id
+        data["data_location"] = data_location
+        data["status"] = "PENDING"
+
+        serializer = JobSerializer(data=data)
+        if serializer.is_valid():
+            job = serializer.save()
+            return Response({"job_id": str(job.job_id)}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class JobResultView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, job_id):
+        api_key = request.headers.get("X-API-Key")
+        if not api_key:
+            return Response({"error": "No API key provided"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            user = User.objects.get(api_key=api_key)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
         try:
             job = Job.objects.get(job_id=job_id, user=user)
         except Job.DoesNotExist:
-            return JsonResponse({"error": "Job not found or not yours"}, status=403)
-        
+            return Response({"error": "Job not found or not yours"}, status=status.HTTP_403_FORBIDDEN)
+
         if job.status in ("COMPLETED", "ERROR") and job.result_location:
             result = get_from_wasabi(job.result_location)
-            return JsonResponse({"status": job.status, "result": result}, status=200)
-        return JsonResponse({"status": job.status}, status=200)
-    return JsonResponse({"error": "Method not allowed"}, status=405)
+            return Response({"status": job.status, "result": result}, status=status.HTTP_200_OK)
+
+        return Response({"status": job.status}, status=status.HTTP_200_OK)
