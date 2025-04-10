@@ -278,6 +278,7 @@ def submit_job(request):
             Job.objects.create(
                 job_id=job_id,
                 user=user,
+                period_minutes=5,
                 job_type=job_type,
                 schedule_time=schedule_time,
                 data_location=data_location,

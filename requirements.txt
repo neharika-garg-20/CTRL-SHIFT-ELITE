@@ -1,5 +1,7 @@
-req
+
 Django>=4.2
 psycopg2-binary>=2.9
 kafka-python>=2.0.2
 requests>=2.31
+
+python-dotenv

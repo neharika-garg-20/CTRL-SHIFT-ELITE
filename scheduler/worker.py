@@ -204,7 +204,7 @@ from botocore.exceptions import ClientError
 from django.core.mail import send_mail
 
 # -- Django setup --
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(_file_), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'job_scheduler.settings')
 import django
 django.setup()
@@ -429,7 +429,7 @@ def handle_kq_task(job_data, worker_id):
         logger.exception(f"❌ Error processing job {job_id}: {str(e)}")
 
 # -- Main entry point --
-if _name_ == "_main_":
+if __name__ == "__main__":
     worker_id = str(uuid.uuid4())
     worker_obj, created = Worker.objects.get_or_create(
         worker_id=worker_id,
