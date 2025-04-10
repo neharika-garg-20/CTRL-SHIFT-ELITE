@@ -191,8 +191,9 @@ def submit_job(request):
 
         file_data = None
         task_data = ""
+        job_id = uuid.uuid4()
+        bucket_name = 'schedular'
 
-        # Initialize Wasabi S3 client
         s3_client = boto3.client(
             's3',
             endpoint_url='https://s3.ap-southeast-1.wasabisys.com',
@@ -200,10 +201,6 @@ def submit_job(request):
             aws_secret_access_key='Me1eSZtwzllRLNtdQBW5wgF3UfzzYrvz1ZpiRwq6',
             config=Config(signature_version='s3v4')
         )
-
-        # Generate unique job ID upfront
-        job_id = uuid.uuid4()
-        bucket_name = 'schedular'
 
         if job_type == "FILE_EXECUTION":
             uploaded_file = request.FILES.get("file")
@@ -221,23 +218,36 @@ def submit_job(request):
             data_location = f"wasabi://{bucket_name}/{file_key}"
 
         elif job_type == "NOTIFICATION":
-            method = request.POST.get("method")  # Should be 'email' or 'slack'
+            method = request.POST.get("method")
             target = request.POST.get("target")
             message = request.POST.get("message")
-            if method not in ['email', 'slack']:
+            
+            if not all([method, target, message]):
+                messages.error(request, "Method, target, and message are required for notifications.")
+                return render(request, '../templates/submit_job.html')
+            
+            if method.lower() not in ['email', 'slack']:
                 messages.error(request, "Invalid notification method. Use 'email' or 'slack'.")
                 return render(request, '../templates/submit_job.html')
-            task_data = f"{method}:{target}:{message}"  # Correct format: e.g., "email:test@example.com:Hello"
+            
+            task_data = f"{method.lower()}:{target}:{message}"
             file_key = f"jobs/{job_id}/notification.txt"
-            s3_client.put_object(
-                Bucket=bucket_name,
-                Key=file_key,
-                Body=task_data.encode()
-            )
-            data_location = f"wasabi://{bucket_name}/{file_key}"
+            try:
+                s3_client.put_object(
+                    Bucket=bucket_name,
+                    Key=file_key,
+                    Body=task_data.encode()
+                )
+                data_location = f"wasabi://{bucket_name}/{file_key}"
+            except Exception as e:
+                messages.error(request, f"Failed to upload to Wasabi: {str(e)}")
+                return render(request, '../templates/submit_job.html')
 
         elif job_type == "SYSTEM_AUTOMATION":
             task_data = request.POST.get("command")
+            if not task_data:
+                messages.error(request, "Command is required for system automation.")
+                return render(request, '../templates/submit_job.html')
             file_key = f"jobs/{job_id}/command.txt"
             s3_client.put_object(
                 Bucket=bucket_name,
@@ -251,22 +261,24 @@ def submit_job(request):
             return render(request, '../templates/submit_job.html')
 
         # Save to database with Wasabi location
-        Job.objects.create(
-            job_id=job_id,
-            user=user,
-            job_type=job_type,
-            schedule_time=schedule_time,
-            data_location=data_location,
-            priority=priority,
-            max_retries=max_retries,
-            is_periodic=is_periodic
-        )
-
-        messages.success(request, "Job submitted successfully!")
-        return redirect('job_list')
+        try:
+            Job.objects.create(
+                job_id=job_id,
+                user=user,
+                job_type=job_type,
+                schedule_time=schedule_time,
+                data_location=data_location,
+                priority=priority,
+                max_retries=max_retries,
+                is_periodic=is_periodic
+            )
+            messages.success(request, "Job submitted successfully!")
+            return redirect('job_list')
+        except Exception as e:
+            messages.error(request, f"Failed to save job: {str(e)}")
+            return render(request, '../templates/submit_job.html')
 
     return render(request, '../templates/submit_job.html')
-
 # def submit_job_form(request):
 #     if request.method == 'POST':
 #         api_key = request.POST.get('api_key')
