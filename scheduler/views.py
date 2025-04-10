@@ -16,8 +16,8 @@ import requests
 from django.http import JsonResponse
 from django.utils.timezone import make_aware
 from datetime import datetime
-
-
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import logout
 # Initialize Wasabi S3 client
 s3_client = boto3.client(
     "s3",
@@ -25,7 +25,9 @@ s3_client = boto3.client(
     aws_secret_access_key=settings.WASABI_SECRET_KEY,
     endpoint_url=settings.WASABI_ENDPOINT
 )
-
+def logout_view(request):
+    logout(request)
+    return redirect('login') 
 def save_to_wasabi(data, job_id, folder="jobs"):
     try:
         key = f"{folder}/{job_id}/data.txt"
@@ -164,6 +166,8 @@ from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.utils.timezone import make_aware
 
+
+
 def submit_job(request):
     if request.method == 'POST':
         user_id = request.session.get('user_id')
@@ -262,71 +266,6 @@ def submit_job(request):
         return redirect('job_list')
 
     return render(request, '../templates/submit_job.html')
-# def submit_job(request):
-#     if request.method == 'POST':
-#         user_id = request.session.get('user_id')
-#         try:
-#             user = User.objects.get(user_id=user_id)
-#         except User.DoesNotExist:
-#             messages.error(request, 'User not found.')
-#             return redirect('login')
-
-#         job_type = request.POST.get('job_type')
-#         schedule_time_str = request.POST.get('schedule_time')
-#         priority = int(request.POST.get('priority') or 0)
-#         max_retries = int(request.POST.get('max_retries') or 3)
-#         is_periodic = request.POST.get("is_periodic") == "on"
-
-#         try:
-#             schedule_time = make_aware(datetime.strptime(schedule_time_str, "%Y-%m-%dT%H:%M"))
-#         except:
-#             messages.error(request, 'Invalid schedule time.')
-#             return render(request, '../templates/submit_job.html')
-
-#         file_data = None
-#         task_data = ""
-
-#         if job_type == "FILE_EXECUTION":
-#             uploaded_file = request.FILES.get("file")
-#             if not uploaded_file:
-#                 messages.error(request, "Please upload a file.")
-#                 return render(request, '../templates/submit_job.html')
-#             file_data = uploaded_file.read()
-#             task_data = file_data.decode(errors="ignore")
-
-#         elif job_type == "NOTIFICATION":
-#             method = request.POST.get("method")
-#             target = request.POST.get("target")
-#             message = request.POST.get("message")
-#             task_data = f"{method}:{target}:{message}"
-
-#         elif job_type == "SYSTEM_AUTOMATION":
-#             task_data = request.POST.get("command")
-
-#         else:
-#             messages.error(request, "Invalid job type.")
-#             return render(request, '../templates/submit_job.html')
-
-#         # Save task_data as a simple reference for now
-#         data_location = f"stored_in_db:{task_data[:50]}..."
-
-#         Job.objects.create(
-#             job_id=uuid.uuid4(),
-#             user=user,
-#             job_type=job_type,
-#             schedule_time=schedule_time,
-#             data_location=data_location,
-#             priority=priority,
-#             max_retries=max_retries,
-#             is_periodic=is_periodic
-#         )
-
-#         messages.success(request, "Job submitted successfully!")
-#         return redirect('job_list')
-
-#     return render(request, '../templates/submit_job.html')
-
-
 
 # def submit_job_form(request):
 #     if request.method == 'POST':
@@ -420,15 +359,34 @@ def job_list_view(request):
         jobs = Job.objects.all()
 
     return render(request, 'job_list.html', {'jobs': jobs})
-
 def job_list(request):
-    status = request.GET.get('status')
-    if status and status != "all":
-        jobs = Job.objects.filter(status=status)
+    user_id = request.session.get('user_id')
+    if not user_id:
+        messages.error(request, "You must be logged in to view your jobs.")
+        return redirect('login')
+
+    try:
+        user = User.objects.get(user_id=user_id)
+    except User.DoesNotExist:
+        messages.error(request, "User not found.")
+        return redirect('login')
+
+    status_filter = request.GET.get('status', 'ALL').upper()
+    if status_filter != 'ALL':
+        jobs = Job.objects.filter(user=user, status=status_filter)
     else:
-        jobs = Job.objects.all()
+        jobs = Job.objects.filter(user=user)
+
     return render(request, '../templates/home.html', {'jobs': jobs})
 
+
+@login_required
+def add_job_view(request):
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        status = request.POST.get('status', 'PENDING').upper()
+        Job.objects.create(name=name, status=status)
+    return redirect(reverse('job_list'))
 def add_job(request):
     if request.method == "POST":
         Job.objects.create(
@@ -479,6 +437,9 @@ def signup_view(request):
             return redirect('login')
 
     return render(request, '../templates/signup.html')
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from .models import User  # your custom user model
 
 def login_view(request):
     if request.method == 'POST':
@@ -487,13 +448,14 @@ def login_view(request):
 
         try:
             user = User.objects.get(username=email, api_key=password)
-            request.session['user_id'] = user.user_id
+            request.session['user_id'] = str(user.user_id)
             request.session['username'] = user.username
             return redirect('job_list')
         except User.DoesNotExist:
             messages.error(request, 'Invalid credentials.')
 
-    return render(request, '../templates/login.html')
+    return render(request, '../templates/login.html')  # no need for ../templates/
+
 
 def get_job_payload(job):
     """
