@@ -86,10 +86,10 @@ WSGI_APPLICATION = 'job_scheduler.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'job_scheduler_schema',
-        'USER': 'postgres',
-        'PASSWORD': 'neharika',
-        'HOST': 'localhost',
+        'NAME': 'postgres',
+        'USER': 'postgres.brscmzhujwibigeslfun',
+        'PASSWORD': 'Haremadhav#99',
+        'HOST': 'aws-0-ap-south-1.pooler.supabase.com',
         'PORT': '5432',
     }
 }
@@ -141,3 +141,4 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = '/login/'  # Redirect for @login_required
 LOGIN_REDIRECT_URL = '/'        # After successful login
 LOGOUT_REDIRECT_URL = 'login'  
+
