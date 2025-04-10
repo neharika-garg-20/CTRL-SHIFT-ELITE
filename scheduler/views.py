@@ -16,8 +16,8 @@ import requests
 from django.http import JsonResponse
 from django.utils.timezone import make_aware
 from datetime import datetime
-
-
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import logout
 # Initialize Wasabi S3 client
 s3_client = boto3.client(
     "s3",
@@ -25,7 +25,9 @@ s3_client = boto3.client(
     aws_secret_access_key=settings.WASABI_SECRET_KEY,
     endpoint_url=settings.WASABI_ENDPOINT
 )
-
+def logout_view(request):
+    logout(request)
+    return redirect('login') 
 def save_to_wasabi(data, job_id, folder="jobs"):
     try:
         key = f"{folder}/{job_id}/data.txt"
@@ -315,15 +317,34 @@ def job_list_view(request):
         jobs = Job.objects.all()
 
     return render(request, 'job_list.html', {'jobs': jobs})
-
 def job_list(request):
-    status = request.GET.get('status')
-    if status and status != "all":
-        jobs = Job.objects.filter(status=status)
+    user_id = request.session.get('user_id')
+    if not user_id:
+        messages.error(request, "You must be logged in to view your jobs.")
+        return redirect('login')
+
+    try:
+        user = User.objects.get(user_id=user_id)
+    except User.DoesNotExist:
+        messages.error(request, "User not found.")
+        return redirect('login')
+
+    status_filter = request.GET.get('status', 'ALL').upper()
+    if status_filter != 'ALL':
+        jobs = Job.objects.filter(user=user, status=status_filter)
     else:
-        jobs = Job.objects.all()
+        jobs = Job.objects.filter(user=user)
+
     return render(request, '../templates/home.html', {'jobs': jobs})
 
+
+@login_required
+def add_job_view(request):
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        status = request.POST.get('status', 'PENDING').upper()
+        Job.objects.create(name=name, status=status)
+    return redirect(reverse('job_list'))
 def add_job(request):
     if request.method == "POST":
         Job.objects.create(
@@ -374,6 +395,9 @@ def signup_view(request):
             return redirect('login')
 
     return render(request, '../templates/signup.html')
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from .models import User  # your custom user model
 
 def login_view(request):
     if request.method == 'POST':
@@ -382,13 +406,14 @@ def login_view(request):
 
         try:
             user = User.objects.get(username=email, api_key=password)
-            request.session['user_id'] = user.user_id
+            request.session['user_id'] = str(user.user_id)
             request.session['username'] = user.username
             return redirect('job_list')
         except User.DoesNotExist:
             messages.error(request, 'Invalid credentials.')
 
-    return render(request, '../templates/login.html')
+    return render(request, '../templates/login.html')  # no need for ../templates/
+
 
 def get_job_payload(job):
     """

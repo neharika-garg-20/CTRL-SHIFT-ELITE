@@ -1,0 +1,14 @@
+{% load static %}
+<header>
+  <div class="logo">Sched.io</div>
+  <div class="auth-links">
+    {% if user.is_authenticated %}
+    <form method="POST" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button type="submit">Logout</button>
+      </form>
+    {% else %}
+      <a href="{% url 'signup' %}">SIGNUP</a> | <a href="{% url 'login' %}">LOGIN</a>
+    {% endif %}
+  </div>
+</header>
