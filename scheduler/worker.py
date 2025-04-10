@@ -1,9 +1,3 @@
-
-
-
-
-
-
 # import logging
 # import os
 # import sys
@@ -17,7 +11,7 @@
 # from kafka import KafkaConsumer
 
 # # -- Django setup --
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(_file_), '..')))
 # os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'job_scheduler.settings')
 # import django
 # django.setup()
@@ -168,7 +162,7 @@
 #         logger.exception(f"❌ Error processing job {job_id}: {str(e)}")
 
 # # -- Main entry point --
-# if __name__ == "__main__":
+# if _name_ == "_main_":
 #     worker_id = str(uuid.uuid4())
 #     worker_obj, created = Worker.objects.get_or_create(
 #         worker_id=worker_id,
@@ -210,7 +204,7 @@ from botocore.exceptions import ClientError
 from django.core.mail import send_mail
 
 # -- Django setup --
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(_file_), '..')))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'job_scheduler.settings')
 import django
 django.setup()
@@ -304,28 +298,35 @@ def process_job(job_data):
                 method, target, message = raw_data.split(":", 2)
                 config = {"method": method, "target": target, "message": message}
             except ValueError:
+                logger.error(f"Invalid notification data format: {raw_data}")
                 return False, f"Invalid notification data format: {raw_data}"
 
             logger.debug(f"Notification config: method={method}, target={target}, message={message}")
+            logger.debug(f"Method value: '{method}' (length={len(method)})")  # Fixed typo
 
-            if method == 'email':
+            logger.debug("Checking method condition")
+            if method.strip() == 'email':  # Strip to handle whitespace
+                logger.info("email method called")
                 send_mail(
-                    'Scheduled Notification',
-                    message,
-                    settings.EMAIL_HOST_USER,
-                    [target],
+                    subject='Scheduled Notification',
+                    message=message,
+                    from_email=settings.EMAIL_HOST_USER,
+                    recipient_list=[target],
                     fail_silently=False,
                 )
                 logger.info(f"Email sent to {target}: {message}")
                 return True, "Email sent"
-            elif method == 'slack':
+            elif method.strip() == 'slack':
+                logger.info("slack method called")
                 response = requests.post(target, json={'text': message})
                 response.raise_for_status()
                 logger.info(f"Slack message sent to {target}: {message}")
                 return True, "Slack message sent"
             else:
+                logger.debug(f"Method '{method}' not recognized as 'email' or 'slack'")
                 return False, f"Unsupported method: {method}"
         except Exception as e:
+            logger.error(f"Notification failed: {str(e)}", exc_info=True)
             return False, f"Notification failed: {str(e)}"
 
     def system_automation():
@@ -428,7 +429,7 @@ def handle_kq_task(job_data, worker_id):
         logger.exception(f"❌ Error processing job {job_id}: {str(e)}")
 
 # -- Main entry point --
-if __name__ == "__main__":
+if _name_ == "_main_":
     worker_id = str(uuid.uuid4())
     worker_obj, created = Worker.objects.get_or_create(
         worker_id=worker_id,
@@ -467,4 +468,3 @@ if __name__ == "__main__":
 
         handle_kq_task(job_data, worker_id)
         consumer.commit()
-

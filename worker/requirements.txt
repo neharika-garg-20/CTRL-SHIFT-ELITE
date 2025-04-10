@@ -1,6 +1,0 @@
-kafka-python
-python-dotenv
-requests
-psycopg2-binary
-boto3
-Django
