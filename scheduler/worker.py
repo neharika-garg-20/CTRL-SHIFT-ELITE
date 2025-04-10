@@ -1,3 +1,9 @@
+
+
+
+
+
+
 # import logging
 # import os
 # import sys
@@ -103,7 +109,7 @@
 #         time.sleep(5)
 
 # # -- Task handler --
-# def handle_kq_task(job_data):
+# def handle_kq_task(job_data, worker_id):
 #     job_id = job_data.get('job_id')
 #     logger.info(f"📨 Received job: {job_id}")
 
@@ -113,10 +119,8 @@
 #             logger.warning(f"Job {job_id} not in PROCESSING state. Skipping.")
 #             return
 
-#         worker_instance = Worker.objects.get_or_create(
-#             worker_id=job_data.get('worker_id', str(uuid.uuid4())),
-#             defaults={'hostname': 'localhost', 'status': 'IDLE', 'capacity': 5}
-#         )[0]
+#         # Use the worker's own worker_id, not from job_data
+#         worker_instance = Worker.objects.get(worker_id=worker_id)
 
 #         assignment = TaskAssignment.objects.create(
 #             job=job,
@@ -166,10 +170,12 @@
 # # -- Main entry point --
 # if __name__ == "__main__":
 #     worker_id = str(uuid.uuid4())
-#     worker_obj, _ = Worker.objects.get_or_create(
+#     worker_obj, created = Worker.objects.get_or_create(
 #         worker_id=worker_id,
 #         defaults={'hostname': 'localhost', 'status': 'IDLE', 'capacity': 5}
 #     )
+#     if not created:
+#         logger.warning(f"Worker {worker_id} already exists, using existing instance.")
 
 #     # Kafka Consumer Setup
 #     consumer = KafkaConsumer(
@@ -187,15 +193,8 @@
 #     logger.info(f"🚀 Worker {worker_id} is up and listening...")
 #     for message in consumer:
 #         job_data = message.value
-#         handle_kq_task(job_data)
-#         consumer.commit()  # Manually commit offset after processing
-
-
-
-
-
-
-
+#         handle_kq_task(job_data, worker_id)  # Pass worker_id explicitly
+#         consumer.commit()
 import logging
 import os
 import sys
@@ -206,7 +205,9 @@ import time
 import subprocess
 import requests
 import boto3
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
+from botocore.exceptions import ClientError
+from django.core.mail import send_mail
 
 # -- Django setup --
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -234,15 +235,46 @@ s3_client = boto3.client(
     endpoint_url=settings.WASABI_ENDPOINT
 )
 
+# -- Kafka Producer for Retries --
+producer = KafkaProducer(
+    bootstrap_servers='127.0.0.1:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+    acks='all'
+)
+
 def save_to_wasabi(data, job_id, folder="results"):
     key = f"{folder}/{job_id}/result.txt"
-    s3_client.put_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key, Body=data.encode("utf-8"))
-    return f"wasabi://{settings.WASABI_BUCKET_NAME}/{key}"
+    try:
+        s3_client.put_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key, Body=data.encode("utf-8"))
+        return f"wasabi://{settings.WASABI_BUCKET_NAME}/{key}"
+    except Exception as e:
+        logger.error(f"Failed to save to Wasabi: {str(e)}")
+        return None
 
 def get_from_wasabi(data_location):
     key = data_location.replace(f"wasabi://{settings.WASABI_BUCKET_NAME}/", "")
-    response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
-    return response["Body"].read().decode("utf-8")
+    logger.debug(f"Fetching from Wasabi: Bucket={settings.WASABI_BUCKET_NAME}, Key={key}")
+    try:
+        response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
+        return response["Body"].read().decode("utf-8")
+    except ClientError as e:
+        logger.error(f"Wasabi error: {str(e)}")
+        raise
+
+def enqueue_job(job):
+    message = {
+        'job_id': str(job.job_id),
+        'job_type': job.job_type,
+        'data_location': job.data_location,
+        'priority': job.priority,
+        'user_id': job.user.user_id,
+        'retry_count': job.retry_count,
+        'max_retries': job.max_retries,
+        'worker_id': None
+    }
+    producer.send('job_topic', value=message)
+    producer.flush()
+    logger.info(f"📤 Requeued Job ID {job.job_id} to Kafka")
 
 # -- Job processing logic --
 def process_job(job_data):
@@ -250,37 +282,63 @@ def process_job(job_data):
     job_type = job_data['job_type'].upper()
 
     def file_execution():
-        file_content = get_from_wasabi(job.data_location)
-        file_type = job.data_location.split('.')[-1].lower()
-        if file_type == 'py':
-            process = subprocess.run(['python', '-c', file_content], capture_output=True, text=True)
-        elif file_type == 'sh':
-            process = subprocess.run(['bash', '-c', file_content], capture_output=True, text=True)
-        else:
-            return False, f"Unsupported file type: {file_type}"
-        result = {'output': process.stdout} if process.returncode == 0 else {'error': process.stderr}
-        return process.returncode == 0, result
+        try:
+            file_content = get_from_wasabi(job.data_location)
+            file_type = job.data_location.split('.')[-1].lower()
+            if file_type == 'py':
+                process = subprocess.run(['python', '-c', file_content], capture_output=True, text=True)
+            elif file_type == 'sh':
+                process = subprocess.run(['bash', '-c', file_content], capture_output=True, text=True)
+            else:
+                return False, f"Unsupported file type: {file_type}"
+            result = {'output': process.stdout} if process.returncode == 0 else {'error': process.stderr}
+            return process.returncode == 0, result
+        except Exception as e:
+            return False, f"File execution failed: {str(e)}"
 
     def notification():
-        config = json.loads(get_from_wasabi(job.data_location))
-        message = config.get('message')
-        target = config.get('target')
-        method = config.get('method', 'email')
-        if method == 'email':
-            print(f"Sending email to {target}: {message}")
-            return True, "Email sent"
-        elif method == 'slack':
-            response = requests.post(target, json={'text': message})
-            response.raise_for_status()
-            return True, "Slack message sent"
-        else:
-            return False, f"Unsupported method: {method}"
+        try:
+            raw_data = get_from_wasabi(job.data_location)
+            logger.debug(f"Notification raw data: {raw_data}")
+            try:
+                method, target, message = raw_data.split(":", 2)
+                config = {"method": method, "target": target, "message": message}
+            except ValueError:
+                return False, f"Invalid notification data format: {raw_data}"
+
+            logger.debug(f"Notification config: method={method}, target={target}, message={message}")
+
+            if method == 'email':
+                send_mail(
+                    'Scheduled Notification',
+                    message,
+                    settings.EMAIL_HOST_USER,
+                    [target],
+                    fail_silently=False,
+                )
+                logger.info(f"Email sent to {target}: {message}")
+                return True, "Email sent"
+            elif method == 'slack':
+                response = requests.post(target, json={'text': message})
+                response.raise_for_status()
+                logger.info(f"Slack message sent to {target}: {message}")
+                return True, "Slack message sent"
+            else:
+                return False, f"Unsupported method: {method}"
+        except Exception as e:
+            return False, f"Notification failed: {str(e)}"
 
     def system_automation():
-        command = get_from_wasabi(job.data_location)
-        process = subprocess.run(command, shell=True, capture_output=True, text=True)
-        result = {'output': process.stdout} if process.returncode == 0 else {'error': process.stderr}
-        return process.returncode == 0, result
+        try:
+            command = get_from_wasabi(job.data_location)
+            logger.debug(f"Executing system automation command: {command}")
+            process = subprocess.run(command, shell=True, capture_output=True, text=True)
+            result = {'output': process.stdout} if process.returncode == 0 else {'error': process.stderr}
+            logger.debug(f"Command result: returncode={process.returncode}, output={process.stdout}, error={process.stderr}")
+            return process.returncode == 0, result
+        except Exception as e:
+            logger.error(f"System automation failed: {str(e)}")
+            return False, f"System automation failed: {str(e)}"
 
     handlers = {
         'FILE_EXECUTION': file_execution,
@@ -311,7 +369,6 @@ def handle_kq_task(job_data, worker_id):
             logger.warning(f"Job {job_id} not in PROCESSING state. Skipping.")
             return
 
-        # Use the worker's own worker_id, not from job_data
         worker_instance = Worker.objects.get(worker_id=worker_id)
 
         assignment = TaskAssignment.objects.create(
@@ -334,16 +391,27 @@ def handle_kq_task(job_data, worker_id):
         assignment.result_location = save_to_wasabi(json.dumps(result), job_id) if success else None
         assignment.save()
 
-        job.status = 'COMPLETED' if success else 'ERROR'
+        if success:
+            job.status = 'COMPLETED'
+        else:
+            if job.retry_count < job.max_retries:
+                job.retry_count += 1
+                job.status = 'PENDING'
+                logger.info(f"Retrying job {job_id} ({job.retry_count}/{job.max_retries})")
+                enqueue_job(job)
+            else:
+                job.status = 'ERROR'
+                logger.error(f"Job {job_id} failed after {job.max_retries} retries")
+
         job.last_execution_time = timezone.now()
         job.worker_id = worker_instance.worker_id
-        job.result_location = assignment.result_location
+        job.result_location = assignment.result_location if success else None
         job.save()
 
         JobHistory.objects.create(
             job=job,
             worker_id=worker_instance.worker_id,
-            status='COMPLETED' if success else 'ERROR',
+            status=assignment.status,
             duration_ms=int((assignment.end_time - assignment.start_time).total_seconds() * 1000),
             error_message=None if success else str(result),
             retry_num=job.retry_count
@@ -385,5 +453,17 @@ if __name__ == "__main__":
     logger.info(f"🚀 Worker {worker_id} is up and listening...")
     for message in consumer:
         job_data = message.value
-        handle_kq_task(job_data, worker_id)  # Pass worker_id explicitly
+        job_id = job_data.get('job_id')
+        try:
+            job = Job.objects.get(job_id=job_id)
+            if job.status in ['COMPLETED', 'ERROR']:
+                logger.info(f"Skipping already processed job {job_id} with status {job.status}")
+                consumer.commit()
+                continue
+        except Job.DoesNotExist:
+            logger.error(f"Job {job_id} not found, skipping")
+            consumer.commit()
+            continue
+
+        handle_kq_task(job_data, worker_id)
         consumer.commit()
