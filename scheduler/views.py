@@ -1,31 +1,20 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, BasePermission
+from rest_framework.decorators import api_view
 from scheduler.models import Job, User
 from scheduler.serializers import JobSerializer
 import boto3
 import uuid
 from django.conf import settings
-# job_scheduler/scheduler/views.py
-
-from django.shortcuts import render, redirect
-from .models import Job
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.utils import timezone
-from .models import Job, User
-import uuid
-from django.shortcuts import render, redirect
-from django.http import HttpResponse
-from .models import Job, User
-from django.shortcuts import render, redirect
-from django.http import HttpResponse
-from .models import Job, User
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from .serializers import JobSerializer
- 
+from django.contrib import messages
+import requests
+from django.http import JsonResponse
+
 # Initialize Wasabi S3 client
 s3_client = boto3.client(
     "s3",
@@ -35,14 +24,27 @@ s3_client = boto3.client(
 )
 
 def save_to_wasabi(data, job_id, folder="jobs"):
-    key = f"{folder}/{job_id}/data.txt"
-    s3_client.put_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key, Body=data.encode("utf-8"))
-    return f"wasabi://{settings.WASABI_BUCKET_NAME}/{key}"
+    try:
+        key = f"{folder}/{job_id}/data.txt"
+        s3_client.put_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key, Body=data.encode("utf-8"))
+        return f"wasabi://{settings.WASABI_BUCKET_NAME}/{key}"
+    except Exception as e:
+        raise Exception(f"Failed to save to Wasabi: {str(e)}")
 
 def get_from_wasabi(data_location):
-    key = data_location.replace(f"wasabi://{settings.WASABI_BUCKET_NAME}/", "")
-    response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
-    return response["Body"].read().decode("utf-8")
+    try:
+        key = data_location.replace(f"wasabi://{settings.WASABI_BUCKET_NAME}/", "")
+        response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
+        return response["Body"].read().decode("utf-8")
+    except Exception as e:
+        raise Exception(f"Failed to retrieve from Wasabi: {str(e)}")
+
+class HasAPIKey(BasePermission):
+    def has_permission(self, request, view):
+        api_key = request.headers.get("X-API-Key")
+        if not api_key:
+            return False
+        return User.objects.filter(api_key=api_key).exists()
 
 class SubmitJobView(APIView):
     permission_classes = [AllowAny]  # You can customize permissions later
@@ -62,11 +64,16 @@ class SubmitJobView(APIView):
         task_data = data.get("data", "default_task")
 
         # Save task data to Wasabi
-        data_location = save_to_wasabi(task_data, job_id)
+        try:
+            data_location = save_to_wasabi(task_data, job_id)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         data["job_id"] = job_id
         data["user"] = user.id
         data["data_location"] = data_location
         data["status"] = "PENDING"
+        data["job_type"] = data.get("job_type", "FILE_EXECUTION")
 
         serializer = JobSerializer(data=data)
         if serializer.is_valid():
@@ -93,50 +100,13 @@ class JobResultView(APIView):
             return Response({"error": "Job not found or not yours"}, status=status.HTTP_403_FORBIDDEN)
 
         if job.status in ("COMPLETED", "ERROR") and job.result_location:
-            result = get_from_wasabi(job.result_location)
-            return Response({"status": job.status, "result": result}, status=status.HTTP_200_OK)
+            try:
+                result = get_from_wasabi(job.result_location)
+                return Response({"status": job.status, "result": result}, status=status.HTTP_200_OK)
+            except Exception as e:
+                return Response({"error": f"Failed to retrieve result: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({"status": job.status}, status=status.HTTP_200_OK)
-
-
-
-
-# def submit_job(request):
-#     if not request.user.is_authenticated:
-#         return redirect('login')  # Redirect to login if the user is not authenticated
-
-#     if request.method == "POST":
-#         job_type = request.POST['job_type']
-#         schedule_time = request.POST['schedule_time']
-#         data_location = request.POST['data_location']
-#         priority = request.POST['priority']
-#         max_retries = request.POST['max_retries']
-        
-#         # Make sure request.user is a proper User instance
-#         user = request.user
-
-#         # You could also explicitly retrieve the User instance like this (just in case)
-#         user_instance = User.objects.get(username=user.username)
-
-#         # Create a new job
-#         job = Job.objects.create(
-#             job_type=job_type,
-#             schedule_time=schedule_time,
-#             data_location=data_location,
-#             priority=priority,
-#             max_retries=max_retries,
-#             user=user_instance  # Ensure the user instance is assigned correctly
-#         )
-        
-#         return redirect('job_list')  # Redirect to a job listing page or job detail page
-
-#     return render(request, '../job_scheduler/submit_job.html')
-
-from django.shortcuts import render, redirect
-from scheduler.models import Job, User
-from django.utils import timezone
-from django.contrib import messages
-import uuid
 
 def submit_job(request):
     if request.method == 'POST':
@@ -166,15 +136,6 @@ def submit_job(request):
 
     return render(request, '../templates/submit_job.html')
 
-
-
-# job_scheduler/scheduler/views.py
-
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from .models import Job
-from .serializers import JobSerializer
-
 @api_view(['GET'])
 def get_job_results(request, job_id):
     try:
@@ -185,9 +146,6 @@ def get_job_results(request, job_id):
         return Response(serializer.data)
     except Job.DoesNotExist:
         return Response({"error": "Job not found"}, status=404)
-# views.py
-from django.shortcuts import render
-from .models import Job
 
 def job_list_view(request):
     status = request.GET.get('status', 'all')
@@ -202,7 +160,6 @@ def job_list_view(request):
         jobs = Job.objects.all()
 
     return render(request, 'job_list.html', {'jobs': jobs})
-
 
 def job_list(request):
     status = request.GET.get('status')
@@ -220,11 +177,12 @@ def add_job(request):
         )
     return redirect('job_list')
 
-
-
 def submit_job_form(request):
     if request.method == "POST":
         api_key = request.POST.get("api_key")
+        if not api_key:
+            return render(request, "../templates/submit_job.html", {"error": "Missing API Key"})
+        
         try:
             user = User.objects.get(api_key=api_key)
         except User.DoesNotExist:
@@ -236,20 +194,33 @@ def submit_job_form(request):
         priority = int(request.POST.get("priority", 0))
         task_data = request.POST.get("data", "default")
 
-        data_location = save_to_wasabi(task_data, job_id)
+        try:
+            data_location = save_to_wasabi(task_data, job_id)
+        except Exception as e:
+            return render(request, "../templates/submit_job.html", {"error": str(e)})
 
-        job = Job.objects.create(
-            job_id=job_id,
-            user=user,
-            job_type=job_type,
-            schedule_time=schedule_time,
-            priority=priority,
-            data_location=data_location,
+        data = {"job_type": job_type, "data": task_data}
+        response = requests.post(
+            "http://localhost:8000/api/submit-job/",
+            json=data,
+            headers={"X-API-Key": api_key}
         )
-
-        return redirect("job_result", job_id=job.job_id)
+        
+        if response.status_code == 201:
+            job = Job.objects.create(
+                job_id=job_id,
+                user=user,
+                job_type=job_type,
+                schedule_time=schedule_time,
+                priority=priority,
+                data_location=data_location,
+            )
+            return render(request, "../templates/submit_job_result.html", {"response": response.json()})
+        
+        return render(request, "../templates/submit_job.html", {"response": response.json()})
 
     return render(request, "../templates/submit_job.html")
+
 def job_result(request, job_id):
     api_key = request.GET.get("api_key")
     if not api_key:
@@ -263,28 +234,16 @@ def job_result(request, job_id):
 
     result = None
     if job.status in ("COMPLETED", "ERROR") and job.result_location:
-        result = get_from_wasabi(job.result_location)
+        try:
+            result = get_from_wasabi(job.result_location)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
 
     return render(request, "../templates/job_result.html", {
         "job_id": job_id,
         "status": job.status,
         "result": result,
     })
-
-
-# def signup_view(request):
-#     if request.method == 'POST':
-#         name = request.POST.get('name')
-#         email = request.POST.get('email')
-#         password = request.POST.get('password')
-#         # You can save user logic here later
-#         print(name, email, password)
-#     return render(request, '../templates/signup.html')
-
-import uuid
-from django.shortcuts import render, redirect
-from scheduler.models import User
-from django.contrib import messages
 
 def signup_view(request):
     if request.method == 'POST':
@@ -305,36 +264,10 @@ def signup_view(request):
 
     return render(request, '../templates/signup.html')
 
-from django.shortcuts import render, redirect
-from django.contrib.auth import authenticate, login
-from django.contrib import messages
-
-from django.contrib.auth import authenticate, login
-from django.shortcuts import render, redirect
-from django.contrib import messages
-
-# def login_view(request):
-#     if request.method == 'POST':
-#         email = request.POST.get('email')
-#         password = request.POST.get('password')
-
-#         user = authenticate(request, username=email, password=password)
-
-#         if user is not None:
-#             login(request, user)
-#             return redirect('job_list')  # Redirect to the page showing submitted jobs
-#         else:
-#             messages.error(request, 'Invalid email or password.')
-
-#     return render(request, '../templates/login.html')
-from django.shortcuts import render, redirect
-from scheduler.models import User
-from django.contrib import messages
-
 def login_view(request):
     if request.method == 'POST':
         email = request.POST.get('email')
-        password = request.POST.get('password')  # Assuming you are storing passwords directly (not recommended in production)
+        password = request.POST.get('password')
 
         try:
             user = User.objects.get(username=email, api_key=password)

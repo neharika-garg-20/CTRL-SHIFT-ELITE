@@ -123,6 +123,7 @@ def worker_loop(worker_id):
 
     print(f"Worker {worker_id} starting...")
     for message in consumer:
+        print(f"📨 Received job message: {message.value}")  # <--- Add this line
         if worker.current_load >= worker.capacity:
             time.sleep(1)
             continue
