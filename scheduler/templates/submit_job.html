@@ -6,6 +6,12 @@
     <link rel="stylesheet" href="{% static '../static/submit_job.css' %}">
 </head>
 <body>
+    <header>
+        <div class="logo">Sched.io</div>
+        <div class="home">
+            <a href="{% url 'job_list' %}"><button id="addJobBtn" class="add-btn" >Home</button></a>
+        </div>
+      </header>
     <h2 style="text-align:center;">Submit a New Job</h2>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
