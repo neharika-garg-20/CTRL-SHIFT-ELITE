@@ -141,3 +141,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = '/login/'  # Redirect for @login_required
 LOGIN_REDIRECT_URL = '/'        # After successful login
 LOGOUT_REDIRECT_URL = 'login'  
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=mindcraftera@gmail.com
+EMAIL_HOST_PASSWORD=mindcrafter2024
