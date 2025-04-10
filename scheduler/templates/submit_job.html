@@ -6,6 +6,12 @@
     <link rel="stylesheet" href="{% static '../static/submit_job.css' %}">
 </head>
 <body>
+    <header>
+        <div class="logo">Sched.io</div>
+        <div class="home">
+            <a href="{% url 'job_list' %}"><button id="addJobBtn" class="add-btn" >Home</button></a>
+        </div>
+      </header>
     <h2 style="text-align:center;">Submit a New Job</h2>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
@@ -39,11 +45,11 @@
         <label for="schedule_time">Schedule Time:</label>
         <input type="datetime-local" name="schedule_time" required>
 
-        <label for="priority">Priority (0-10):</label>
-        <input type="number" name="priority" min="0" max="10">
-
+        <!-- <label for="priority">Priority (0-10):</label>
+        <input type="number" name="priority" min="0" max="10"> -->
+<!-- 
         <label for="max_retries">Max Retries:</label>
-        <input type="number" name="max_retries" min="0">
+        <input type="number" name="max_retries" min="0"> -->
 
         <label><input type="checkbox" name="is_periodic"> Is this a periodic job?</label>
 

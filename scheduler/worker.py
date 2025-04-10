@@ -467,3 +467,4 @@ if __name__ == "__main__":
 
         handle_kq_task(job_data, worker_id)
         consumer.commit()
+
