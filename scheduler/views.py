@@ -179,8 +179,8 @@ def submit_job(request):
 
         job_type = request.POST.get('job_type')
         schedule_time_str = request.POST.get('schedule_time')
-        priority = int(request.POST.get('priority') or 0)
-        max_retries = int(request.POST.get('max_retries') or 3)
+        priority = int(1)
+        max_retries = int(10)
         is_periodic = request.POST.get("is_periodic") == "on"
 
         try:
