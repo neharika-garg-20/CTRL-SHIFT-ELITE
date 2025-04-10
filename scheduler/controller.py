@@ -321,13 +321,16 @@ def check_worker_health():
 
 # === Schedule Ready Jobs from DB ===
 def schedule_ready_jobs():
+    print("ready jobs working")
     ready_jobs = Job.objects.filter(
         status='PENDING',
         schedule_time__lte=timezone.now(),
-        is_periodic=False
+        
     ).order_by('-priority', 'schedule_time')
+    print("here")
 
     for job in ready_jobs:
+        print(job)
         job.status = 'PROCESSING'
         job.start_time = timezone.now()
         job.save()
@@ -336,6 +339,7 @@ def schedule_ready_jobs():
 
 # === Schedule Periodic Jobs ===
 def schedule_periodic_jobs():
+    print("periodic job")
     periodic_jobs = Job.objects.filter(
         is_periodic=True,
         period_minutes__isnull=False,
