@@ -21,9 +21,10 @@ from scheduler import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('jobs/', views.submit_job, name='submit_job'),
+    
     # path('submit/', views.submit_job, name='submit_job'),
     
+    path('jobs/', views.submit_job, name='submit_job'),
     # URL pattern for getting job results
     path('jobs/<uuid:job_id>/results/', views.get_job_results, name='get_job_results'),
     path('', views.job_list, name='job_list'),

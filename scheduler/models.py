@@ -1,10 +1,15 @@
 from django.db import models
 import uuid
+from uuid import uuid4
 
 class User(models.Model):
     user_id = models.CharField(max_length=50, primary_key=True)
     username = models.CharField(max_length=100)
     api_key = models.CharField(max_length=100, unique=True)
+    def save(self, *args, **kwargs):
+        if not self.api_key:
+            self.api_key = uuid4().hex
+        super().save(*args, **kwargs)
 
     def _str_(self):
         return self.username

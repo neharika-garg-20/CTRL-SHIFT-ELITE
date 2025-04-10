@@ -14,6 +14,9 @@ from django.utils import timezone
 from django.contrib import messages
 import requests
 from django.http import JsonResponse
+from django.utils.timezone import make_aware
+from datetime import datetime
+
 
 # Initialize Wasabi S3 client
 s3_client = boto3.client(
@@ -108,6 +111,52 @@ class JobResultView(APIView):
 
         return Response({"status": job.status}, status=status.HTTP_200_OK)
 
+# def submit_job(request):
+#     if request.method == 'POST':
+#         user_id = request.session.get('user_id')
+#         try:
+#             user = User.objects.get(user_id=user_id)
+#         except User.DoesNotExist:
+#             messages.error(request, 'User not found.')
+#             return redirect('login')
+
+#         job_type = request.POST.get('job_type')
+#         schedule_time = request.POST.get('schedule_time')
+#         data_location = request.POST.get('data_location')
+#         priority = request.POST.get('priority')
+#         max_retries = request.POST.get('max_retries')
+
+#         job = Job.objects.create(
+#             user=user,
+#             job_type=job_type,
+#             schedule_time=schedule_time,
+#             data_location=data_location,
+#             priority=priority,
+#             max_retries=max_retries
+#         )
+#         messages.success(request, 'Job submitted successfully!')
+#         return redirect('job_list')
+
+#     return render(request, '../templates/submit_job.html')
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.utils.timezone import make_aware
+from datetime import datetime
+import uuid
+from .models import Job, User
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.utils.timezone import make_aware
+from datetime import datetime
+import uuid
+from .models import Job, User  # Update path based on your structure
+from django.shortcuts import render, redirect
+from django.utils.timezone import make_aware
+from django.contrib import messages
+from .models import Job, User
+import uuid
+from datetime import datetime
+
 def submit_job(request):
     if request.method == 'POST':
         user_id = request.session.get('user_id')
@@ -118,23 +167,129 @@ def submit_job(request):
             return redirect('login')
 
         job_type = request.POST.get('job_type')
-        schedule_time = request.POST.get('schedule_time')
-        data_location = request.POST.get('data_location')
-        priority = request.POST.get('priority')
-        max_retries = request.POST.get('max_retries')
+        schedule_time_str = request.POST.get('schedule_time')
+        priority = int(request.POST.get('priority') or 0)
+        max_retries = int(request.POST.get('max_retries') or 3)
+        is_periodic = request.POST.get("is_periodic") == "on"
 
-        job = Job.objects.create(
+        try:
+            schedule_time = make_aware(datetime.strptime(schedule_time_str, "%Y-%m-%dT%H:%M"))
+        except:
+            messages.error(request, 'Invalid schedule time.')
+            return render(request, '../templates/submit_job.html')
+
+        file_data = None
+        task_data = ""
+
+        if job_type == "FILE_EXECUTION":
+            uploaded_file = request.FILES.get("file")
+            if not uploaded_file:
+                messages.error(request, "Please upload a file.")
+                return render(request, '../templates/submit_job.html')
+            file_data = uploaded_file.read()
+            task_data = file_data.decode(errors="ignore")
+
+        elif job_type == "NOTIFICATION":
+            method = request.POST.get("method")
+            target = request.POST.get("target")
+            message = request.POST.get("message")
+            task_data = f"{method}:{target}:{message}"
+
+        elif job_type == "SYSTEM_AUTOMATION":
+            task_data = request.POST.get("command")
+
+        else:
+            messages.error(request, "Invalid job type.")
+            return render(request, '../templates/submit_job.html')
+
+        # Save task_data as a simple reference for now
+        data_location = f"stored_in_db:{task_data[:50]}..."
+
+        Job.objects.create(
+            job_id=uuid.uuid4(),
             user=user,
             job_type=job_type,
             schedule_time=schedule_time,
             data_location=data_location,
             priority=priority,
-            max_retries=max_retries
+            max_retries=max_retries,
+            is_periodic=is_periodic
         )
-        messages.success(request, 'Job submitted successfully!')
+
+        messages.success(request, "Job submitted successfully!")
         return redirect('job_list')
 
     return render(request, '../templates/submit_job.html')
+
+
+
+# def submit_job_form(request):
+#     if request.method == 'POST':
+#         api_key = request.POST.get('api_key')
+#         if not api_key:
+#             return render(request, "../templates/submit_job.html", {"error": "API key required."})
+
+#         try:
+#             user = User.objects.get(api_key=api_key)
+#         except User.DoesNotExist:
+#             return render(request, "../templates/submit_job.html", {"error": "Invalid API key."})
+
+#         job_type = request.POST.get('job_type')
+#         schedule_time_str = request.POST.get('schedule_time')
+#         priority = int(request.POST.get('priority') or 0)
+#         max_retries = int(request.POST.get('max_retries') or 3)
+#         is_periodic = request.POST.get("is_periodic") == "on"
+
+#         try:
+#             schedule_time = make_aware(datetime.strptime(schedule_time_str, "%Y-%m-%dT%H:%M"))
+#         except:
+#             return render(request, "../templates/submit_job.html", {"error": "Invalid schedule time."})
+
+#         job_id = uuid.uuid4()
+
+#         # Job-specific logic
+#         if job_type == "FILE_EXECUTION":
+#             uploaded_file = request.FILES.get("file")
+#             if not uploaded_file:
+#                 return render(request, "../templates/submit_job.html", {"error": "File required."})
+#             file_data = uploaded_file.read()
+#             task_data = file_data.decode(errors="ignore")
+#             data_to_store = file_data
+#         elif job_type == "NOTIFICATION":
+#             method = request.POST.get("method")
+#             target = request.POST.get("target")
+#             message = request.POST.get("message")
+#             task_data = f"{method}:{target}:{message}"
+#             data_to_store = task_data.encode()
+#         elif job_type == "SYSTEM_AUTOMATION":
+#             command = request.POST.get("command")
+#             task_data = command
+#             data_to_store = command.encode()
+#         else:
+#             return render(request, "../templates/submit_job.html", {"error": "Invalid job type."})
+
+#         try:
+#             data_location = save_to_wasabi(data_to_store, job_id)
+#         except Exception as e:
+#             return render(request, "../templates/submit_job.html", {"error": f"Wasabi error: {e}"})
+#         Job.objects.create(
+#             job_id=job_id,
+#             user=user,
+#             job_type=job_type,
+#             schedule_time=schedule_time,
+#             data_location=data_location,
+#             priority=priority,
+#             max_retries=max_retries,
+#             is_periodic=is_periodic,
+#             job_input=task_data
+#         )
+
+#         return render(request, "../templates/home.html", {
+#             "response": {"message": "Job submitted and saved to database!"}
+#         })
+
+#     return render(request, "../templates/submit_job.html")
+
 
 @api_view(['GET'])
 def get_job_results(request, job_id):
@@ -176,50 +331,6 @@ def add_job(request):
             status=request.POST['status']
         )
     return redirect('job_list')
-
-def submit_job_form(request):
-    if request.method == "POST":
-        api_key = request.POST.get("api_key")
-        if not api_key:
-            return render(request, "../templates/submit_job.html", {"error": "Missing API Key"})
-        
-        try:
-            user = User.objects.get(api_key=api_key)
-        except User.DoesNotExist:
-            return render(request, "../templates/submit_job.html", {"error": "Invalid API Key"})
-
-        job_id = uuid.uuid4()
-        job_type = request.POST.get("job_type", "script")
-        schedule_time = request.POST.get("schedule_time")
-        priority = int(request.POST.get("priority", 0))
-        task_data = request.POST.get("data", "default")
-
-        try:
-            data_location = save_to_wasabi(task_data, job_id)
-        except Exception as e:
-            return render(request, "../templates/submit_job.html", {"error": str(e)})
-
-        data = {"job_type": job_type, "data": task_data}
-        response = requests.post(
-            "http://localhost:8000/api/submit-job/",
-            json=data,
-            headers={"X-API-Key": api_key}
-        )
-        
-        if response.status_code == 201:
-            job = Job.objects.create(
-                job_id=job_id,
-                user=user,
-                job_type=job_type,
-                schedule_time=schedule_time,
-                priority=priority,
-                data_location=data_location,
-            )
-            return render(request, "../templates/submit_job_result.html", {"response": response.json()})
-        
-        return render(request, "../templates/submit_job.html", {"response": response.json()})
-
-    return render(request, "../templates/submit_job.html")
 
 def job_result(request, job_id):
     api_key = request.GET.get("api_key")
@@ -278,3 +389,38 @@ def login_view(request):
             messages.error(request, 'Invalid credentials.')
 
     return render(request, '../templates/login.html')
+
+def get_job_payload(job):
+    """
+    Based on job_type, return the correct data for workers.
+    """
+    if job.job_type == 'HEALTH_CHECK':
+        return {
+            "url": "https://example.com/api/health"
+        }
+    
+    elif job.job_type == 'NOTIFICATION':
+        return {
+            "to": "roshni010505@example.com",
+            "subject": "Scheduled Notification",
+            "message": job.job_input or "This is a system-generated notification."
+        }
+
+    elif job.job_type == 'SYSTEM_AUTOMATION':
+        return {
+            "command": "sudo systemctl restart apache2"
+        }
+
+    elif job.job_type == 'FILE_EXECUTION':
+        return {
+            "wasabi_path": "scripts/default_script.sh"
+        }
+
+    elif job.job_type == 'BACKUP':
+        return {
+            "wasabi_bucket": "ctrl-elite-backups",
+            "backup_path": f"backups/{job.id}/backup_{job.created_at.date()}.zip"
+        }
+
+    else:
+        return {}  # Default empty
