@@ -1,0 +1,121 @@
+body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: #fff;
+    color: #000;
+}
+
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 40px;
+    border-bottom: 1px solid #eee;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+}
+
+.triangle {
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-bottom: 16px solid #e74c3c;
+    margin-right: 8px;
+}
+
+.logo-text {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.logo-text .dot {
+    color: #e74c3c;
+}
+
+.nav-links {
+    list-style: none;
+    display: flex;
+    gap: 30px;
+    margin: 0;
+    padding: 0;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: #000;
+    font-weight: 400;
+    position: relative;
+}
+
+.nav-links a.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -5px;
+    height: 2px;
+    width: 100%;
+    background-color: #e74c3c;
+    border-radius: 10px;
+}
+
+.signup-container {
+    max-width: 400px;
+    margin: 100px auto;
+    padding: 30px;
+    text-align: left;
+}
+
+.signup-container h2 {
+    text-align: center;
+    font-size: 24px;
+    margin-bottom: 30px;
+}
+
+.signup-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.signup-form input {
+    width: 100%;
+    padding: 10px 34px;
+    margin-bottom: 20px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+.password-field {
+    position: relative;
+}
+
+.password-field .icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.password-field input {
+    padding-left: 30px;
+}
+
+.signup-form button {
+    width: 100%;
+    padding: 10px;
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.signup-form button:hover {
+    background-color: #d1392f;
+}

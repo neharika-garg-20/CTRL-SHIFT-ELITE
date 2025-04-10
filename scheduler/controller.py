@@ -77,7 +77,7 @@ def controller_loop():
         ).order_by('priority', 'schedule_time')
 
         for job in ready_jobs:
-            job.status = 'QUEUED'
+            job.status = 'PROCESSING'
             job.start_time = timezone.now()
             job.save()
 

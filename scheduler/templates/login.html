@@ -1,0 +1,39 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - Sched.io</title>
+    <link rel="stylesheet" href="{% static '../static/login.css' %}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <div class="triangle"></div>
+            <span class="logo-text">Sched<span class="dot">.</span>io</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="{% url 'job_list' %}">Home</a></li>
+            <li><a href="{% url 'signup' %}">Sign Up</a></li>
+            <li><a href="{% url 'login' %}" class="active">Login</a></li>
+        </ul>
+    </nav>
+
+    <div class="login-container">
+        <h2>Welcome Back</h2>
+        <form method="POST" class="login-form">
+            {% csrf_token %}
+            <label>Email</label>
+            <input type="email" name="email" placeholder="Enter your email" required>
+
+            <label>Password</label>
+            <div class="password-field">
+                <input type="password" name="password" placeholder="Enter your password" required>
+            </div>
+
+            <button type="submit">Login</button>
+        </form>
+    </div>
+</body>
+</html>

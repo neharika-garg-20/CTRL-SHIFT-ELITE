@@ -16,11 +16,19 @@ Including another URLconf
 """
 from django.contrib import admin
 
-from django.urls import path
+from django.urls import path, include
 from scheduler import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('jobs/', views.submit_job, name='submit_job'),
+    # path('submit/', views.submit_job, name='submit_job'),
+    
+    # URL pattern for getting job results
     path('jobs/<uuid:job_id>/results/', views.get_job_results, name='get_job_results'),
+    path('', views.job_list, name='job_list'),
+        # path('signup/', views.signup_view, name='signup'),
+    # path('', views.submit_job_form, name='submit_job'),
+    # path('job/<uuid:job_id>/', views.job_result, name='job_result'),
+     path('', include('scheduler.urls')),
 ]
