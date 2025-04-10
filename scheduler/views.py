@@ -168,6 +168,15 @@ from django.utils.timezone import make_aware
 
 
 
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.utils.timezone import make_aware
+from datetime import datetime
+import uuid
+import boto3
+from botocore.config import Config
+from .models import User, Job  # Adjust import based on your project structure
+
 def submit_job(request):
     if request.method == 'POST':
         user_id = request.session.get('user_id')
@@ -185,8 +194,8 @@ def submit_job(request):
 
         try:
             schedule_time = make_aware(datetime.strptime(schedule_time_str, "%Y-%m-%dT%H:%M"))
-        except:
-            messages.error(request, 'Invalid schedule time.')
+        except (ValueError, TypeError):
+            messages.error(request, 'Invalid schedule time format. Use YYYY-MM-DDTHH:MM.')
             return render(request, '../templates/submit_job.html')
 
         file_data = None
@@ -221,26 +230,30 @@ def submit_job(request):
             method = request.POST.get("method")
             target = request.POST.get("target")
             message = request.POST.get("message")
-            
+
+            # Validate required fields
             if not all([method, target, message]):
                 messages.error(request, "Method, target, and message are required for notifications.")
                 return render(request, '../templates/submit_job.html')
-            
-            if method.lower() not in ['email', 'slack']:
+
+            # Validate notification method
+            method = method.lower()
+            if method not in ['email', 'slack']:
                 messages.error(request, "Invalid notification method. Use 'email' or 'slack'.")
                 return render(request, '../templates/submit_job.html')
-            
-            task_data = f"{method.lower()}:{target}:{message}"
+
+            # Construct task data and upload to Wasabi
+            task_data = f"{method}:{target}:{message}"
             file_key = f"jobs/{job_id}/notification.txt"
             try:
                 s3_client.put_object(
                     Bucket=bucket_name,
                     Key=file_key,
-                    Body=task_data.encode()
+                    Body=task_data.encode('utf-8')
                 )
                 data_location = f"wasabi://{bucket_name}/{file_key}"
             except Exception as e:
-                messages.error(request, f"Failed to upload to Wasabi: {str(e)}")
+                messages.error(request, f"Failed to upload notification to Wasabi: {str(e)}")
                 return render(request, '../templates/submit_job.html')
 
         elif job_type == "SYSTEM_AUTOMATION":
@@ -275,7 +288,7 @@ def submit_job(request):
             messages.success(request, "Job submitted successfully!")
             return redirect('job_list')
         except Exception as e:
-            messages.error(request, f"Failed to save job: {str(e)}")
+            messages.error(request, f"Failed to save job to database: {str(e)}")
             return render(request, '../templates/submit_job.html')
 
     return render(request, '../templates/submit_job.html')
