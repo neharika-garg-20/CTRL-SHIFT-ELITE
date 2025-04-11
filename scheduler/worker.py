@@ -203,7 +203,7 @@ def handle_kq_task(job_data, worker_id):
                 job.retry_count += 1
                 job.status = 'PENDING'
                 logger.info(f"Retrying job {job_id} ({job.retry_count}/{job.max_retries})")
-                enqueue_job(job)
+                # enqueue_job(job)
             else:
                 job.status = 'ERROR'
                 logger.error(f"Job {job_id} failed after {job.max_retries} retries")
