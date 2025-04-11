@@ -4,6 +4,7 @@ import time
 import json
 from datetime import timedelta
 from kafka import KafkaProducer
+from django.db import transaction
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'job_scheduler.settings')
@@ -76,14 +77,21 @@ def schedule_ready_jobs():
         
     ).order_by('-priority', 'schedule_time')
     print("here")
+ 
 
-    for job in ready_jobs:
-        print(job)
-        job.status = 'PROCESSING'
-        job.start_time = timezone.now()
-        job.save()
+    with transaction.atomic():
+        ready_jobs = Job.objects.select_for_update(skip_locked=True).filter(
+            status='PENDING',
+            schedule_time__lte=timezone.now()
+        ).order_by('-priority', 'schedule_time')[:10]
 
-        enqueue_job(job)
+        for job in ready_jobs:
+            job.status = 'PROCESSING'
+            job.start_time = timezone.now()
+            job.save()
+            enqueue_job(job)
+
+    
 
 
 def schedule_periodic_jobs():
