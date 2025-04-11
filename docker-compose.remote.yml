@@ -1,0 +1,155 @@
+# version: '3.8'
+
+# services:
+#   zookeeper:
+#     image: confluentinc/cp-zookeeper:7.3.2
+#     container_name: zookeeper
+#     ports:
+#       - "12181:2181"  # Host port mapped to Zookeeper
+#     environment:
+#       ZOOKEEPER_CLIENT_PORT: 2181
+#       ZOOKEEPER_TICK_TIME: 2000
+
+#   kafka:
+#     image: confluentinc/cp-kafka:7.3.2
+#     container_name: kafka
+#     depends_on:
+#       - zookeeper
+#     ports:
+#       - "19092:9092"  # Host port 19092 mapped to internal 9092
+#     environment:
+#       KAFKA_BROKER_ID: 1
+#       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+#       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://192.168.79.90:19092
+#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+
+#   kafka-ui:
+#     image: provectuslabs/kafka-ui:latest
+#     container_name: kafka-ui
+#     depends_on:
+#       - kafka
+#     ports:
+#       - "8080:8080"
+#     environment:
+#       KAFKA_CLUSTERS_0_NAME: local
+#       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+
+# # version: '3.8'
+
+# # services:
+# #   zookeeper:
+# #     image: confluentinc/cp-zookeeper:7.3.2
+# #     container_name: zookeeper
+# #     ports:
+# #       - "12181:2181"
+# #     environment:
+# #       ZOOKEEPER_CLIENT_PORT: 2181
+# #       ZOOKEEPER_TICK_TIME: 2000
+
+# #   kafka:
+# #     image: confluentinc/cp-kafka:7.3.2
+# #     container_name: kafka_service
+# #     depends_on:
+# #       - zookeeper
+# #     ports:
+# #       - "19092:9092"
+# #     environment:
+# #       KAFKA_BROKER_ID: 1
+# #       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+# #       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+# #       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://192.168.79.90:19092
+# #       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+# #       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+
+
+# #   kafka-ui:
+# #     image: provectuslabs/kafka-ui:latest
+# #     container_name: kafka-ui
+# #     depends_on:
+# #       - kafka
+# #     ports:
+# #       - "8080:8080"
+# #     environment:
+# #       KAFKA_CLUSTERS_0_NAME: local
+# #       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+# #   db:
+# #     image: citusdata/citus:11.2
+# #     container_name: db
+# #     environment:
+# #       POSTGRES_USER: job_user
+# #       POSTGRES_PASSWORD: job_pass
+# #       POSTGRES_DB: job_db
+# #     ports:
+# #       - "5432:5432"
+
+# #   web:
+# #     build:
+# #       context: .
+# #       dockerfile: dockerfile.web
+# #     volumes:
+# #       - .:/app
+# #     working_dir: /app
+# #     command: >
+# #       sh -c "python manage.py migrate &&
+# #              python manage.py runserver 0.0.0.0:8000"
+# #     environment:
+# #       DJANGO_SETTINGS_MODULE: job_scheduler.settings
+# #     ports:
+# #       - "8000:8000"
+# #     depends_on:
+# #       - db
+# #       - kafka
+
+# #   controller:
+# #     build:
+# #       context: .
+# #       dockerfile: dockerfile.worker
+# #     working_dir: /app/scheduler
+# #     command: python controller.py
+# #     environment:
+# #       DJANGO_SETTINGS_MODULE: job_scheduler.settings
+# #     depends_on:
+# #       - db
+# #       - kafka
+
+# #   worker:
+# #     build:
+# #       context: .
+# #       dockerfile: dockerfile.worker
+# #     working_dir: /app/scheduler
+# #     command: python worker.py
+# #     environment:
+# #       DJANGO_SETTINGS_MODULE: job_scheduler.settings
+# #     depends_on:
+# #       - kafka
+# #       - db
+# #     deploy:
+# #       replicas: 3  # You can increase this to scale the number of workers
+
+# # volumes:
+# #   pg_data:
+
+version: '3.8'
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker  # Ensure this Dockerfile exists and is correct
+    container_name: remote-worker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: 172.20.62.38:19092  # Main machine Kafka
+      POSTGRES_HOST: 172.20.62.38                 # Main machine Postgres (if needed)
+      POSTGRES_DB: job_db
+      POSTGRES_USER: job_user
+      POSTGRES_PASSWORD: job_pass
+      DJANGO_SETTINGS_MODULE: job_scheduler.settings
+    volumes:
+      - .:/app
+    working_dir: /app/scheduler
+    command: python worker.py
+    restart: unless-stopped
