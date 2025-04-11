@@ -59,90 +59,90 @@ s3_client = boto3.client(
 def logout_view(request):
     logout(request)
     return redirect('login') 
-def save_to_wasabi(data, job_id, folder="jobs"):
-    try:
-        key = f"{folder}/{job_id}/data.txt"
-        s3_client.put_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key, Body=data.encode("utf-8"))
-        return f"wasabi://{settings.WASABI_BUCKET_NAME}/{key}"
-    except Exception as e:
-        raise Exception(f"Failed to save to Wasabi: {str(e)}")
+# def save_to_wasabi(data, job_id, folder="jobs"):
+#     try:
+#         key = f"{folder}/{job_id}/data.txt"
+#         s3_client.put_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key, Body=data.encode("utf-8"))
+#         return f"wasabi://{settings.WASABI_BUCKET_NAME}/{key}"
+#     except Exception as e:
+#         raise Exception(f"Failed to save to Wasabi: {str(e)}")
 
-def get_from_wasabi(data_location):
-    try:
-        key = data_location.replace(f"wasabi://{settings.WASABI_BUCKET_NAME}/", "")
-        response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
-        return response["Body"].read().decode("utf-8")
-    except Exception as e:
-        raise Exception(f"Failed to retrieve from Wasabi: {str(e)}")
+# def get_from_wasabi(data_location):
+#     try:
+#         key = data_location.replace(f"wasabi://{settings.WASABI_BUCKET_NAME}/", "")
+#         response = s3_client.get_object(Bucket=settings.WASABI_BUCKET_NAME, Key=key)
+#         return response["Body"].read().decode("utf-8")
+#     except Exception as e:
+#         raise Exception(f"Failed to retrieve from Wasabi: {str(e)}")
 
-class HasAPIKey(BasePermission):
-    def has_permission(self, request, view):
-        api_key = request.headers.get("X-API-Key")
-        if not api_key:
-            return False
-        return User.objects.filter(api_key=api_key).exists()
+# class HasAPIKey(BasePermission):
+#     def has_permission(self, request, view):
+#         api_key = request.headers.get("X-API-Key")
+#         if not api_key:
+#             return False
+#         return User.objects.filter(api_key=api_key).exists()
 
-class SubmitJobView(APIView):
-    permission_classes = [AllowAny]  # You can customize permissions later
+# class SubmitJobView(APIView):
+#     permission_classes = [AllowAny]  # You can customize permissions later
 
-    def post(self, request):
-        api_key = request.headers.get("X-API-Key")
-        if not api_key:
-            return Response({"error": "No API key provided"}, status=status.HTTP_401_UNAUTHORIZED)
+#     def post(self, request):
+#         api_key = request.headers.get("X-API-Key")
+#         if not api_key:
+#             return Response({"error": "No API key provided"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        try:
-            user = User.objects.get(api_key=api_key)
-        except User.DoesNotExist:
-            return Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+#         try:
+#             user = User.objects.get(api_key=api_key)
+#         except User.DoesNotExist:
+#             return Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        data = request.data.copy()
-        job_id = uuid.uuid4()
-        task_data = data.get("data", "default_task")
+#         data = request.data.copy()
+#         job_id = uuid.uuid4()
+#         task_data = data.get("data", "default_task")
 
-        # Save task data to Wasabi
-        try:
-            data_location = save_to_wasabi(task_data, job_id)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         # Save task data to Wasabi
+#         try:
+#             data_location = save_to_wasabi(task_data, job_id)
+#         except Exception as e:
+#             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        data["job_id"] = job_id
-        data["user"] = user.id
-        data["data_location"] = data_location
-        data["status"] = "PENDING"
-        data["job_type"] = data.get("job_type", "FILE_EXECUTION")
+#         data["job_id"] = job_id
+#         data["user"] = user.id
+#         data["data_location"] = data_location
+#         data["status"] = "PENDING"
+#         data["job_type"] = data.get("job_type", "FILE_EXECUTION")
 
-        serializer = JobSerializer(data=data)
-        if serializer.is_valid():
-            job = serializer.save()
-            return Response({"job_id": str(job.job_id)}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#         serializer = JobSerializer(data=data)
+#         if serializer.is_valid():
+#             job = serializer.save()
+#             return Response({"job_id": str(job.job_id)}, status=status.HTTP_201_CREATED)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class JobResultView(APIView):
-    permission_classes = [AllowAny]
+# class JobResultView(APIView):
+#     permission_classes = [AllowAny]
 
-    def get(self, request, job_id):
-        api_key = request.headers.get("X-API-Key")
-        if not api_key:
-            return Response({"error": "No API key provided"}, status=status.HTTP_401_UNAUTHORIZED)
+#     def get(self, request, job_id):
+#         api_key = request.headers.get("X-API-Key")
+#         if not api_key:
+#             return Response({"error": "No API key provided"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        try:
-            user = User.objects.get(api_key=api_key)
-        except User.DoesNotExist:
-            return Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+#         try:
+#             user = User.objects.get(api_key=api_key)
+#         except User.DoesNotExist:
+#             return Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        try:
-            job = Job.objects.get(job_id=job_id, user=user)
-        except Job.DoesNotExist:
-            return Response({"error": "Job not found or not yours"}, status=status.HTTP_403_FORBIDDEN)
+#         try:
+#             job = Job.objects.get(job_id=job_id, user=user)
+#         except Job.DoesNotExist:
+#             return Response({"error": "Job not found or not yours"}, status=status.HTTP_403_FORBIDDEN)
 
-        if job.status in ("COMPLETED", "ERROR") and job.result_location:
-            try:
-                result = get_from_wasabi(job.result_location)
-                return Response({"status": job.status, "result": result}, status=status.HTTP_200_OK)
-            except Exception as e:
-                return Response({"error": f"Failed to retrieve result: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         if job.status in ("COMPLETED", "ERROR") and job.result_location:
+#             try:
+#                 result = get_from_wasabi(job.result_location)
+#                 return Response({"status": job.status, "result": result}, status=status.HTTP_200_OK)
+#             except Exception as e:
+#                 return Response({"error": f"Failed to retrieve result: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response({"status": job.status}, status=status.HTTP_200_OK)
+#         return Response({"status": job.status}, status=status.HTTP_200_OK)
 
   
 
@@ -309,12 +309,7 @@ def job_list(request):
 
 
 @login_required
-def add_job_view(request):
-    if request.method == 'POST':
-        name = request.POST.get('name')
-        status = request.POST.get('status', 'PENDING').upper()
-        Job.objects.create(name=name, status=status)
-    return redirect('job_list')
+
 
 def add_job(request):
     if request.method == "POST":
