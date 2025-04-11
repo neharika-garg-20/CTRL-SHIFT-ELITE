@@ -39,6 +39,12 @@ s3_client = boto3.client(
     endpoint_url=settings.WASABI_ENDPOINT
 )
 
+# -- Kafka Producer for Retries --
+producer = KafkaProducer(
+    bootstrap_servers='127.0.0.1:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+    acks='all'
+)
 
 def save_to_wasabi(data, job_id, folder="results"):
     key = f"{folder}/{job_id}/result.txt"
