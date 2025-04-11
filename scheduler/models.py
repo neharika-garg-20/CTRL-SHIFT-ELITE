@@ -28,7 +28,9 @@ class Job(models.Model):
     schedule_time = models.DateTimeField()
     period_minutes = models.IntegerField(null=True, blank=True)
     priority = models.IntegerField(default=0)
-    data_location = models.TextField()  # Path to file in Wasabi, e.g., "wasabi://job-scheduler-bucket/jobs/<job_id>/data.txt"
+    
+    data_location = models.TextField()  
+    # this data location contains the path to the wasabi bucket where the results will be stored and the input will also be stored
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     last_execution_time = models.DateTimeField(null=True, blank=True)
     max_retries = models.IntegerField(default=3)
